@@ -17,6 +17,8 @@ mod task;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::syscall::TaskInfo;
+use crate::timer::get_time;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -36,7 +38,7 @@ pub struct TaskManager {
     /// total number of tasks
     num_app: usize,
     /// use inner value to get mutable access
-    inner: UPSafeCell<TaskManagerInner>,
+    pub inner: UPSafeCell<TaskManagerInner>,
 }
 
 /// Inner of Task Manager
@@ -54,6 +56,10 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            // ch3 add begin
+            task_info: TaskInfo::new(),
+            first_run_time: 0,
+            // ch3 add end
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -80,6 +86,10 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
+        // ch3 add begin
+        task0.task_info.set_status(TaskStatus::Running);
+        task0.first_run_time = get_time();
+        // ch3 add end
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -95,6 +105,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Ready;
+        inner.tasks[current].task_info.set_status(TaskStatus::Ready);
     }
 
     /// Change the status of current `Running` task into `Exited`.
@@ -102,6 +113,9 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Exited;
+        inner.tasks[current]
+            .task_info
+            .set_status(TaskStatus::Exited);
     }
 
     /// Find next task to run and return task id.
@@ -122,9 +136,16 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            inner.tasks[current].task_info.set_status(TaskStatus::Ready);
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+            // ch3 add begin
+            // Set the first run time of the task
+            if inner.tasks[next].first_run_time == 0 {
+                inner.tasks[next].first_run_time = get_time();
+            }
+            // ch3 add end
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {
@@ -135,8 +156,18 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    /// Get the current task id
+    pub fn get_current_tid(&self) -> usize {
+        self.inner.exclusive_access().current_task
+    }
 }
 
+impl TaskManagerInner {
+    /// Get current taskinfo
+    pub fn get_current_taskinfo(&mut self, tid: usize) -> &mut TaskInfo {
+        &mut self.tasks[tid].task_info
+    }
+}
 /// Run the first task in task list.
 pub fn run_first_task() {
     TASK_MANAGER.run_first_task();
