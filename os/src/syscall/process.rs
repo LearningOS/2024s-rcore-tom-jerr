@@ -1,8 +1,8 @@
 //! Process management syscalls
 use crate::{
     config::MAX_SYSCALL_NUM,
-    task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus},
-    timer::get_time_us,
+    task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, TASK_MANAGER},
+    timer::{get_time_ms, get_time_us},
 };
 
 #[repr(C)]
@@ -54,8 +54,12 @@ impl TaskInfo {
         self.syscall_times[syscall_id] += 1;
     }
     /// Get the syscall times of task
-    pub fn get_syscall_times(&self, syscall_id: usize) -> u32 {
-        self.syscall_times[syscall_id]
+    pub fn get_syscalsl_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        self.syscall_times
+    }
+
+    pub fn set_syscalls_times(&mut self, syscalls_times: [u32; MAX_SYSCALL_NUM]) {
+        self.syscall_times = syscalls_times;
     }
 }
 
@@ -89,5 +93,18 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     // trace!("kernel: sys_task_info");
-    -1
+    let now = get_time_ms();
+    let tid = TASK_MANAGER.get_current_tid();
+    unsafe {
+        (*_ti).set_status(TaskStatus::Running);
+        (*_ti).set_time(now - TASK_MANAGER.get_current_first_run_time());
+        (*_ti).set_syscalls_times(
+            TASK_MANAGER
+                .inner
+                .exclusive_access()
+                .get_current_taskinfo(tid)
+                .get_syscalsl_times(),
+        );
+    }
+    0
 }

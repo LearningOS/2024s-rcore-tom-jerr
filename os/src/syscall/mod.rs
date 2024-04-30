@@ -37,11 +37,12 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         || syscall_id == SYSCALL_YIELD
     {
         let current_tid = TASK_MANAGER.get_current_tid();
-        TASK_MANAGER
-            .inner
-            .exclusive_access()
+        let mut inner = TASK_MANAGER.inner.exclusive_access();
+
+        inner
             .get_current_taskinfo(current_tid)
             .increase_syscall_times(syscall_id);
+        drop(inner);
     }
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),

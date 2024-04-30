@@ -18,7 +18,7 @@ use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use crate::syscall::TaskInfo;
-use crate::timer::get_time;
+use crate::timer::get_time_ms;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -88,7 +88,7 @@ impl TaskManager {
         task0.task_status = TaskStatus::Running;
         // ch3 add begin
         task0.task_info.set_status(TaskStatus::Running);
-        task0.first_run_time = get_time();
+        task0.first_run_time = get_time_ms();
         // ch3 add end
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
@@ -143,7 +143,7 @@ impl TaskManager {
             // ch3 add begin
             // Set the first run time of the task
             if inner.tasks[next].first_run_time == 0 {
-                inner.tasks[next].first_run_time = get_time();
+                inner.tasks[next].first_run_time = get_time_ms();
             }
             // ch3 add end
             drop(inner);
@@ -158,7 +158,17 @@ impl TaskManager {
     }
     /// Get the current task id
     pub fn get_current_tid(&self) -> usize {
-        self.inner.exclusive_access().current_task
+        let inner = self.inner.exclusive_access();
+        let current_tid = inner.current_task;
+        drop(inner);
+        current_tid
+    }
+    /// Get the current task first run time
+    pub fn get_current_first_run_time(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        let first_run_time = inner.tasks[inner.current_task].first_run_time;
+        drop(inner);
+        first_run_time
     }
 }
 
